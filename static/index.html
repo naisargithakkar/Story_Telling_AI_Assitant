@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Story Generator</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background-color: #212121; color: #ececec; display: flex; height: 100vh; overflow: hidden; }
+
+    .sidebar { width: 340px; background-color: #171717; border-right: 1px solid #2f2f2f; padding: 24px; display: flex; flex-direction: column; gap: 18px; overflow-y: auto; }
+    .sidebar h1 { font-size: 1.25rem; color: #ffffff; margin-bottom: 4px; }
+    .subtitle { font-size: 0.85rem; color: #9b9b9b; margin-bottom: 8px; }
+
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    label { font-size: 0.85rem; font-weight: 500; color: #d1d5db; }
+    input, select { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #383838; background-color: #212121; color: #ffffff; font-size: 0.95rem; outline: none; }
+    input:focus, select:focus { border-color: #10a37f; }
+
+    .param-badges { display: flex; gap: 8px; margin-top: 4px; }
+    .badge { flex: 1; background-color: #2a2a2a; border: 1px solid #383838; padding: 8px; border-radius: 8px; text-align: center; font-size: 0.8rem; color: #9b9b9b; }
+    .badge strong { display: block; color: #10a37f; font-size: 0.95rem; margin-top: 2px; }
+
+    button { margin-top: 8px; padding: 12px; border-radius: 8px; border: none; background-color: #10a37f; color: #ffffff; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+    button:hover { background-color: #0d8c6d; }
+    button:disabled { background-color: #383838; color: #9b9b9b; cursor: not-allowed; }
+
+    .main { flex: 1; padding: 40px; overflow-y: auto; display: flex; justify-content: center; }
+    .story-box { max-width: 760px; width: 100%; }
+    .placeholder { text-align: center; margin-top: 25vh; color: #757575; }
+    .placeholder h2 { color: #d1d5db; font-size: 1.5rem; margin-bottom: 8px; }
+
+    #story-output { white-space: pre-wrap; line-height: 1.8; font-size: 1.05rem; color: #ececec; }
+    .meta-bar { display: none; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid #2f2f2f; font-size: 0.85rem; color: #9b9b9b; }
+  </style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div>
+      <h1>AI Story Generator</h1>
+      <p class="subtitle">Powered by Groq LLM</p>
+    </div>
+
+    <div class="form-group">
+      <label for="topic">Story Topic</label>
+      <input type="text" id="topic" placeholder="e.g., A robot who learns to cook" />
+    </div>
+
+    <div class="form-group">
+      <label for="genre">Genre</label>
+      <select id="genre">
+        <option value="Comedy">Comedy</option>
+        <option value="Fantasy">Fantasy</option>
+        <option value="Sci-Fi">Sci-Fi</option>
+        <option value="Adventure">Adventure</option>
+        <option value="Romance">Romance</option>
+        <option value="Horror">Horror</option>
+        <option value="Mystery">Mystery</option>
+        <option value="Historical">Historical</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="character">Character Name (Optional)</label>
+      <input type="text" id="character" placeholder="Leave blank to auto-generate" />
+    </div>
+
+    <div class="form-group">
+      <label for="length">Story Length</label>
+      <select id="length">
+        <option value="Short">Short (~150 words)</option>
+        <option value="Medium" selected>Medium (~400 words)</option>
+        <option value="Long">Long (~800 words)</option>
+      </select>
+    </div>
+
+    <div class="param-badges">
+      <div class="badge">Temperature<strong id="temp-preview">0.9</strong></div>
+      <div class="badge">Max Tokens<strong id="tokens-preview">700</strong></div>
+    </div>
+
+    <button id="generate-btn">Generate Story</button>
+  </aside>
+
+  <main class="main">
+    <div class="story-box">
+      <div class="placeholder" id="placeholder">
+        <h2>Ready to write</h2>
+        <p>Enter your story details on the left and click Generate Story.</p>
+      </div>
+      <div class="meta-bar" id="meta-bar"></div>
+      <div id="story-output"></div>
+    </div>
+  </main>
+
+  <script>
+    const genreTemps = {
+      Comedy: 0.9, Fantasy: 0.85, "Sci-Fi": 0.8, Adventure: 0.75,
+      Romance: 0.7, Horror: 0.7, Mystery: 0.5, Historical: 0.3
+    };
+    const lengthTokens = { Short: 300, Medium: 700, Long: 1400 };
+
+    const genreEl = document.getElementById("genre");
+    const lengthEl = document.getElementById("length");
+    const tempPreview = document.getElementById("temp-preview");
+    const tokensPreview = document.getElementById("tokens-preview");
+    const btn = document.getElementById("generate-btn");
+    const placeholder = document.getElementById("placeholder");
+    const metaBar = document.getElementById("meta-bar");
+    const output = document.getElementById("story-output");
+
+    function updatePreviews() {
+      tempPreview.textContent = genreTemps[genreEl.value];
+      tokensPreview.textContent = lengthTokens[lengthEl.value];
+    }
+
+    genreEl.addEventListener("change", updatePreviews);
+    lengthEl.addEventListener("change", updatePreviews);
+
+    btn.addEventListener("click", async () => {
+      const topic = document.getElementById("topic").value.trim();
+      const character_name = document.getElementById("character").value.trim();
+      const genre = genreEl.value;
+      const length = lengthEl.value;
+
+      if (!topic) {
+        alert("Please enter a Story Topic.");
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = "Generating...";
+      placeholder.style.display = "none";
+      metaBar.style.display = "none";
+      output.textContent = "Crafting your story...";
+
+      try {
+        const res = await fetch("/api/generate-story", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ topic, genre, character_name, length })
+        });
+        const data = await res.json();
+
+        metaBar.textContent = `Genre: ${genre}  •  Temperature: ${data.temperature_used}  •  Max Tokens: ${data.max_tokens_used}`;
+        metaBar.style.display = "block";
+        output.textContent = data.story;
+      } catch (err) {
+        output.textContent = "Error generating story. Check if the backend server is running.";
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Generate Story";
+      }
+    });
+  </script>
+</body>
+</html>
